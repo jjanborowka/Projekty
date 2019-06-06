@@ -1,0 +1,271 @@
+---
+title: "Praca Domowa 2 Testy"
+author: "Jan Borowski"
+output:
+  pdf_document: default
+  html_document:
+    keep_md: yes
+   
+---
+\section{Wstęp}
+```{r dane, cache=TRUE, include=FALSE}
+# WCZYTYWANIE DANYCH 
+Set1.data <- read.table("MY_SET/Set1.data")
+Set1.lable <- read.table("MY_SET/Set1.labels0")
+Set2.data <- read.table("MY_SET/Set2.data")
+Set2.lable <-read.table("MY_SET/Set2.labels0")
+Set3.data <- read.table("MY_SET/Set3.data")
+Set3.lable <- read.table("MY_SET/Set3.labels0")
+Set1.lable <- Set1.lable$x
+Set2.lable <- Set2.lable$x
+Set3.lable <- Set3.lable$x
+library(mclust)
+library(dendextend)
+library(ggplot2)
+library(igraph)
+library(plot3D)
+```
+
+W poniższym raporci przedstawię wyniki testów mojej implementaci algorytmu spectralnego na stworzonych do tego celu 3 zbiorach testowych. Poniżej kod implementacij :
+
+```{r cache_save, cache = TRUE}
+Mnn <- function(X,M){
+  #'Przymuje macierz lub data.frame
+  #'Funkcja wyznacza M najblirzszych sąsiadów punktów podanych w 
+  #'formacie macierzy gdzie mjesce i,j to j-ta współrzędna i-tego punktu.
+  #'Zwraca macierz gdzie miesce i,j to j-ty indeks sonsiad i-tego punktu.
+  n <- length(X[,1])
+  X <- as.matrix(dist(X,method = "euclidean",upper = TRUE))
+  X <- apply(X,1,order)
+  X<- t(X[2:(M+1),])
+  X
+}
+Mnn_graph <- function(S){
+  #' Funkcja zwraca graf sąsiedstwa dla wygenrowanej wczesniej macierzy  sąsiedstwa
+  # Używam pakietu igraph
+  n <- nrow(S)
+  m <- ncol(S)
+  # Tworzę dwie ramki z jedna kolumną zawierajacą numery wierzchołków 
+  # a drugą numery jednego z ich sąsiadów (wierzchołki powarzają się tyle 
+  # razy ile najbliższych sąsiadów wyznaczono)
+  vartex1 <- rep(1:nrow(S), each = m)
+  nigerbous1 <- unlist(as.data.frame(t(S)))
+  edges <- cbind(vartex1, nigerbous1)
+  edges_symetrical <- cbind(vartex1, nigerbous1)
+  # Używam powstałych ramek do stworzenia 0,1 macierzy sąsiedstwa 
+  G <- matrix(0, nrow = n, ncol = n)
+  G[edges] <- 1
+  G[edges_symetrical] <- 1
+  # korzystam z pakietu igraph aby z powstałej macierzy stworzyć graf
+  G<- graph_from_adjacency_matrix(G,mode = "undirected")
+  # dodaję krawędzie do grafu aby był on spójny 
+  if (!count_components(G)==1){
+  g <- !duplicated(clusters(G)$membership)
+  c <- (1:n)[g]
+  if (length(c)>2){
+    d <- c[2:(length(c)-1)]
+    d <- rep(d,each=2)
+    c <- c(c[1],d,c[length(c)])
+  }
+  G<- add_edges(G,c)
+  return(G)}
+  return(G)
+}
+Laplacian_eigen <- function(G,k){
+  #'Funkcja przyjmuję graf sąsiedstwa zwraca k wektorów odopwiadajacyh najmniejszym wartościom
+  #'własnym laplasjanu tego grafu.
+  # Korzystam z wbudowanej funkcij pakietu igraph 
+  # do wyznaczenia laplasianu 
+  # warto zauważyć ,że funkcij zwraca macierz rzadką
+  L <- laplacian_matrix(G)
+  L <- eigen(L)
+  n <- length(L$value)
+  g <- L$vectors[,(n):(n-k+1)]
+  # Zdecydowałem się urzyć k najmnijszych 
+  # ponieważ z testów wynika lepsze działanie w takim wypadku 
+  g
+}
+Spectral_algoritm_cluster <- function(X,M,k){
+  #'Funkcja wyznacza podział zbioru na k grup 
+  #'używjac algorytmu spektralnego
+  #' M = liczba najbliższych sąsiadów 
+  W <-  Mnn(X,M)
+  D <- Mnn_graph(W)
+  Z <- Laplacian_eigen(D,k)
+  wynik <- kmeans(Z,k)
+  wynik$cluster
+  
+}
+```
+
+Testy wykonywanę są dla paremetru **k** ustalonego przy tworzeniu zbioru oraz dla parametru **M** z przdziału od **2** do **k** +10 .
+
+```{r best_M, cache=TRUE, dependson="dane", include=FALSE}
+best_M <- function(Set.data,Set.lable){
+  k <-  max(Set1.lable)
+  start1 <- 2
+  w <- 0
+  for (i in start1:(k+10)){
+    o <- Spectral_algoritm_cluster(Set.data,i,k)
+    z <- adjustedRandIndex(o,Set.lable)
+    if (z >w) {
+      w <- z 
+      result <- i 
+    }
+  } 
+  return (result)
+  
+}
+```
+
+Wynik algorytmu bedzie porównywany z domyślnym podziałem za pomoacą skorygowanego indeksu Randa,indeksu Fowlkesa–Mallowsa oraz wygodnej graficznej reprezentacij. Zarówno współczynniki jakościowe jak i podział bedą prezentowane dla najlepszego **M**.
+\newpage
+
+\section{Zbiór 1}
+Pierwszy zbiór to dwie figruy 2D zaburzone o szum losowy. Ma on na celu pokazać skuteczność mojej implementaci algorytmu spektralnego na zbiorze z którym nie poradził by sobie algorytm k-średnich. Przedstawiony na wykresie wygląda następująco: 
+
+```{r echo=FALSE,cache=TRUE ,dependson="dane" ,echo=FALSE,fig.pos='h',fig.align="center" ,fig.cap="Zbiór 1 podział domyślny",fig.width=5,fig.height=3}
+
+
+ggplot(Set1.data,aes(x=x,y=y,color=Set1.lable))+geom_point(size= 2 )
+M<- best_M(Set1.data,Set1.lable)
+```
+
+Podział pozostaje dobry nawet przy zmiennym **M**:
+
+```{r echo=FALSE,cache=TRUE ,dependson=c(1,2,3) ,echo=FALSE, fig.align='center',fig.pos='h', fig.cap="Zbiór 1 RN w iteracjach",fig.height=4, fig.width=6}
+ 
+k <- 2:12
+j <- 1
+for (i in 2:12){
+  o <- Spectral_algoritm_cluster(Set1.data,i,2)
+  o <- adjustedRandIndex(o,Set1.lable)
+  k[j] <- o
+  j <- j+1
+}
+
+barplot(k,xlab = "Parametr M",ylab = "Indeks Randa",names.arg = 2:12)
+```
+
+\newpage
+
+Najlepszy podział :
+
+
+```{r echo=FALSE,cache=TRUE,dependson=c(1,2,3,-1),fig.align='center',fig.path='h',fig.cap="Zbiór 1 podział wygenerowany",fig.height=5, fig.width=6}
+Generated_lable <- Spectral_algoritm_cluster(Set1.data,M,2)
+ggplot(Set1.data,aes(x=x,y=y,color=Generated_lable))+geom_point(size= 2 )
+Rn <- adjustedRandIndex(Set1.lable,Generated_lable)
+FM <-  FM_index(Set1.lable,Generated_lable)
+
+
+```
+
+
+```{r echo=FALSE,dependson=-1} 
+print(paste("Skorygowany indeeks Randa  :",Rn))
+print(paste("Indeks Fowlkesa–Mallowsa  :",FM))
+
+print(paste("Parametr M   :",M))
+
+```
+
+Jak widać w przypadku tego prostego zbioru podział jest zgodny, dla dość dużego zakresu **M**.
+
+\newpage
+
+\section{Zbiór 2 }
+Drugi zbiór to dwie sfery o wspólnym środku jedna zawarta w drugiej zaburzonę o szum losowy. Sytuacja bardzo podobna do poprzedniaj ale teraz zbiór w 3D . Przedstawiony graficznie wygląda następująco : 
+
+```{r echo=FALSE,cache=TRUE ,dependson="dane" ,echo=FALSE, fig.align='center', fig.pos='h',fig.cap="Zbiór 2 podział domyślny"}
+scatter3D(Set2.data[,1],Set2.data[,2],Set2.data[,3],colvar=Set2.lable,col=c("red","blue"),phi = 19,cex=0.5)
+
+
+
+```
+
+Po wykorzystaniu algorytmu spektralnego do znalezienia podziałów :
+
+```{r echo=FALSE,cache=TRUE,dependson=c(1,2,3),fig.align='center',fig.pos='h',fig.cap="Zbiór 2 podział wygenerowany"}
+
+M <- best_M(Set2.data,Set2.lable)
+o <- Spectral_algoritm_cluster(Set2.data,M,2)
+Generated_lable <- o
+scatter3D(Set2.data[,1],Set2.data[,2],Set2.data[,3],colvar=Generated_lable,col=c("red","blue"),phi = 19,cex=0.5)
+Rn <- adjustedRandIndex(Set2.lable,o)
+FM <- FM_index(Set2.lable,o)
+
+
+```
+
+```{r echo=FALSE,dependson=-1}
+print(paste("Skorygowany indeeks Randa  :",Rn))
+print(paste("Indeks Fowlkesa–Mallowsa  :",FM))
+print(paste("Parametr M   :",M))
+
+```
+
+Jak widać również w tym wypadku algorytm radzi sobie bez zarzutu ale tak jak poprzednio nie dla karzdego **M**. 
+\newpage
+
+\section{Zbiór 3 }
+Ostatni z przestawionych przeze mnie zbiorów testowych ma na celu pokazanie problemów algorytmu który nie działa idealnie kiedy zbiory "przecinją sie". W tym celu rozważę zbiór w kształcie tak zwanych "kółek olimpijskich" tym razem bez szumu losowego . Przedstawione graficznie : 
+
+```{r echo=FALSE,cache=TRUE ,dependson="dane" ,echo=FALSE, fig.align='center',fig.pos='h', fig.cap="Zbiór 3 podział domyślny",fig.width=4,fig.height=2}
+Set3.lable <- as.factor(Set3.lable)
+wykres <- ggplot(Set3.data,aes(x=x,y=y,color=Set3.lable))+geom_point(size= 2 )
+wykres <-  wykres+ scale_color_manual(breaks = c("1","2","3","4","5"),values=c("blue","yellow","black","green","red"))
+wykres
+
+```
+
+W tym wypadku nie można po prostu przedstawić  wyników działania algorytmu ponieważ potrafią się one diametralnie różnić w kolejnych itereciach pomimo niezmiennych parametrów **M** i **k**.
+Wyniki  :
+
+```{r echo=FALSE,cache=TRUE ,dependson="dane" ,echo=FALSE, fig.pos='h',fig.align='center', fig.cap="Parametr M dla zbioru 3"}
+k <- 1:20
+w <- 0 
+for (i in 2:20){
+  o <- Spectral_algoritm_cluster(Set3.data,i,5)
+  o <- adjustedRandIndex(o,Set3.lable)
+  
+  k[i] <- o
+  if (o>w){ w <- o
+  M <- i 
+  }
+  
+} 
+
+barplot(k[2:20],names.arg = 2:20,xlab = "Parametr M",ylab = "Indeks Randa")
+```
+
+Jak widać najwyższy indeks występuje dla parametru **M** = `r M` więc z takim parametrem będe wywoływał algorytm w tym wypadku wywołam go 10 krotnie i policzę średnie indeksy :
+Wygenerowany podział : 
+
+```{r echo=FALSE,cache=TRUE,dependson=c(1,2,3,-1),fig.align='center',fig.pos='h',fig.cap="Zbiór 3 podziały wygenerowany",fig.height=4}
+o <- Spectral_algoritm_cluster(Set3.data,M,5)
+Generated_lable <- as.factor(o) 
+
+wykres <- ggplot(Set3.data,aes(x=x,y=y,color=Generated_lable))+geom_point(size= 2 )
+wykres <-  wykres+ scale_color_manual(breaks = c("1","2","3","4","5"),values=c("blue","yellow","black","green","red"))
+wykres
+
+```
+
+
+```{r echo=FALSE,cache=TRUE,dependson=c(1,2,3,-1)}
+
+Rn <- adjustedRandIndex(Set3.lable,o)
+FM <- FM_index(Set3.lable,o)
+
+
+print(paste("Średni skorygowany indeeks Randa  :",Rn))
+print(paste("Średni indeks Fowlkesa–Mallowsa  :",FM))
+print(paste("Parametr M   :",M))
+
+```
+
+Jak widać w przypadku tego zbioru algorytm okazał się mało skuteczny jak mówiłem wcześniej wynika to z "przecinania się" .
+\section{Podsumowanie}
+ 
+Moja impementacja algorytmu spektralnego poradziła sobię dobrze ze zbiorami dostosowanymi do jej działana. 3 zbiór prezentuje problemy z algorytmem spektralnym który nie jest w nim wstanie dokonać odpowiedniego podziału, ponieważ najbliźsi sąsiedzi punktów nie są tu wystarczającą informacją. Pomimo tego uważam że moja implementacja tego algorytmu przeszła pomyślnie moje testy. 

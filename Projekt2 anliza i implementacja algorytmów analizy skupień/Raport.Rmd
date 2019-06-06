@@ -1,0 +1,535 @@
+---
+title: "Praca Domowa 2 Raport"
+author: "Jan Borowski"
+output:
+  pdf_document: default
+  html_document:
+    keep_md: yes
+   
+---
+```{r dane, cache=TRUE, include=FALSE}
+# WCZYTYWANIE DANYCH 
+Set1.data <- read.table("MY_SET/Set1.data")
+Set1.lable <- read.table("MY_SET/Set1.labels0")
+Set2.data <- read.table("MY_SET/Set2.data")
+Set2.lable <-read.table("MY_SET/Set2.labels0")
+Set3.data <- read.table("MY_SET/Set3.data")
+Set3.lable <- read.table("MY_SET/Set3.labels0")
+Set1.lable <- Set1.lable$x
+Set2.lable <- Set2.lable$x
+Set3.lable <- Set3.lable$x
+options(stringsAsFactors = FALSE)
+library(mclust)
+library(dendextend)
+library(ggplot2)
+library(igraph)
+library(plot3D)
+library(dplyr)
+library(dbscan)
+library(genie)
+```
+
+
+```{r cache_save, cache=TRUE, include=FALSE}
+Mnn <- function(X,M){
+  #'Przymuje macierz lub data.frame
+  #'Funkcja wyznacza M najblirzszych sąsiadów punktów podanych w 
+  #'formacie macierzy gdzie mjesce i,j to j-ta współrzędna i-tego punktu.
+  #'Zwraca macierz gdzie miesce i,j to j-ty indeks sonsiad i-tego punktu.
+  n <- length(X[,1])
+  X <- as.matrix(dist(X,method = "euclidean",upper = TRUE))
+  X <- apply(X,1,order)
+  X<- t(X[2:(M+1),])
+  X
+}
+Mnn_graph <- function(S){
+  #' Funkcja zwraca graf sąsiedstwa dla wygenrowanej wczesniej macierzy  sąsiedstwa
+  # Używam pakietu igraph
+  n <- nrow(S)
+  m <- ncol(S)
+  # Tworzę dwie ramki z jedna kolumną zawierajacą numery wierzchołków 
+  # a drugą numery jednego z ich sąsiadów (wierzchołki powarzają się tyle 
+  # razy ile najbliższych sąsiadów wyznaczono)
+  vartex1 <- rep(1:nrow(S), each = m)
+  nigerbous1 <- unlist(as.data.frame(t(S)))
+  edges <- cbind(vartex1, nigerbous1)
+  edges_symetrical <- cbind(vartex1, nigerbous1)
+  # Używam powstałych ramek do stworzenia 0,1 macierzy sąsiedstwa 
+  G <- matrix(0, nrow = n, ncol = n)
+  G[edges] <- 1
+  G[edges_symetrical] <- 1
+  # korzystam z pakietu igraph aby z powstałej macierzy stworzyć graf
+  G<- graph_from_adjacency_matrix(G,mode = "undirected")
+  # dodaję krawędzie do grafu aby był on spójny 
+  if (!count_components(G)==1){
+  g <- !duplicated(clusters(G)$membership)
+  c <- (1:n)[g]
+  if (length(c)>2){
+    d <- c[2:(length(c)-1)]
+    d <- rep(d,each=2)
+    c <- c(c[1],d,c[length(c)])
+  }
+  G<- add_edges(G,c)
+  return(G)}
+  return(G)
+}
+Laplacian_eigen <- function(G,k){
+  #'Funkcja graf sąsiedstwa zwraca k wektorów odopwiadajacyh najmniejszym wartościom
+  #'własnym laplasjanu tego grafu.
+  # Korzystam z wbudowanej funkcij pakietu igraph 
+  # do wyznaczenia laplasianu 
+  # warto zauważyć ,że funkcij zwraca macierz rzadką
+  L <- laplacian_matrix(G)
+  L <- eigen(L)
+  n <- length(L$value)
+  g <- L$vectors[,(n):(n-k+1)]
+  # Zdecydowałem się urzyć k najmnijszych 
+  # ponieważ z testów wynika lepsze działanie w takim wypadku 
+  g
+}
+Spectral_algoritm_cluster <- function(X,M,k){
+  #'Funkcja wyznacza podział zbioru na k grup 
+  #'używjac algorytmu spektralnego
+  #' M = liczba najbliższych sąsiadów 
+  W <-  Mnn(X,M)
+  D <- Mnn_graph(W)
+  Z <- Laplacian_eigen(D,k)
+  wynik <- kmeans(Z,k)
+  wynik$cluster
+  
+}
+```
+
+
+```{r ,cache=TRUE,include=FALSE}
+# WYCZYTYWANIE DANYCH DO OBRUBKI 
+#GENNNIE 
+genie.table <- read.table("TESTY/gennie_czynapewno.csv",sep=",")
+colnames(genie.table) <- c("Nazwa Zbioru","Indeks Randa","FM","Czas")
+
+genie_s.table <- read.table("TESTY/genie_s.csv",sep=",")
+colnames(genie_s.table) <- c("Nazwa Zbioru","Indeks Randa","FM","Czas")
+genie_s.table <- genie_s.table[c(-1,-6,-17,-18),]
+ 
+# GENNIe TURBO 
+genie_turbo.table <- read.table("TESTY/gennie_czynapewno_turbo.csv",sep=",")
+colnames(genie_turbo.table) <- c("Nazwa Zbioru","Indeks Randa","FM","Czas")
+
+
+genie_turbo_s.table <- read.table("TESTY/genie_turbo_s.csv",sep=",")
+colnames(genie_turbo_s.table) <- c("Nazwa Zbioru","Indeks Randa","FM","Czas")
+
+#hclust_fast 
+hclust_fast.table <- read.table("TESTY/fast_czynapewno.csv",sep=",")
+colnames(hclust_fast.table) <- c("Nazwa Zbioru","Indeks Randa","FM","Czas")
+
+hclust_fast_s.table <- read.table("TESTY/hclust_fast_s.csv",sep=",")
+colnames(hclust_fast_s.table) <- c("Nazwa Zbioru","Indeks Randa","FM","Czas")
+hclust_fast_s.table <- hclust_fast_s.table[c(-1,-6,-17,-18),]
+
+#hclust_slow
+hclust_slow.table <- read.table("TESTY/slow_czynapewno.csv",sep=",")
+colnames(hclust_slow.table) <- c("Nazwa Zbioru","Indeks Randa","FM","Czas")
+
+
+hclust_slow_s.table <- read.table("TESTY/hclust_slow_s.csv",sep=",")
+colnames(hclust_slow_s.table) <- c("Nazwa Zbioru","Indeks Randa","FM","Czas")
+hclust_slow_s.table <- hclust_slow_s.table[c(-1,-6,-17,-18),]
+
+#hdbscan 
+hdbscan.table <- read.table("TESTY/hdbscan_czynapewno.csv",sep=",")
+colnames(hdbscan.table) <- c("Nazwa Zbioru","Indeks Randa","FM","Czas","parametr minPoint")
+
+hdbscan_s.table <- read.table("TESTY/hdbscan1_S.csv",sep=",")
+colnames(hdbscan_s.table) <- c("Nazwa Zbioru","Indeks Randa","FM","Czas","parametr minPoint")
+wynik  <- merge(hdbscan_s.table,genie_s.table,by="Nazwa Zbioru")[,c("Nazwa Zbioru","Indeks Randa.x","FM.x","Czas.x","parametr minPoint")]
+hdbscan_s.table <-wynik
+colnames(hdbscan_s.table) <- c("Nazwa Zbioru","Indeks Randa","FM","Czas","parametr minPoint")
+
+
+# MOJ 
+moj.table <- read.table("TESTY/moj.csv",sep=",")
+colnames(moj.table) <- c("Nazwa Zbioru","Indeks Randa","FM","Parametr M","Czas")
+moj.table <- moj.table[c(-1,-2,-c(84:92),-141,-142,-143),]
+
+moj_s.table <- read.table("TESTY/moj_s.csv",sep=",")
+colnames(moj_s.table) <- c("Nazwa Zbioru","Indeks Randa","Fm","Parametr M","Czas")
+moj_s.table <- moj_s.table[c(-1,-14,-15,-16,-47,-48),]
+# hclust testy metod
+hclust_test.table <- read.table("TESTY/hclust_test_czynapewno.csv",sep=",")
+colnames(hclust_test.table) <- c("Nazwa Zbioru","Metoda","Rn","Fm","Czas")
+# wilkości zbiorów 
+working_directory <- getwd()
+
+files_directory <- file.path(working_directory, "Zbiory_benchmarkowe")
+zbiory <- list.files(files_directory, "data\\.gz$", recursive=TRUE)
+etykiety <- list.files(files_directory, "labels0\\.gz$", recursive=TRUE)
+pliki <- cbind(zbiory, etykiety)
+dlugosc_plikow <- 1:46
+for (i in 1:46){
+  
+label <- paste(files_directory, pliki[i, 2], sep = "/")
+label <- read.table(label)
+set_name <- sub('.*/', '', label)
+dlugosc_plikow[i] <- (length(label[,1]))
+}
+dlugosc_plikow
+
+
+```
+\tableofcontents
+
+\section*{Wstęp}
+( W całym raporcie używam określenia mój oczywiście chodzi o moją implementację algorytmu spektralnego)
+W poniższym raporcie dokonam porówania mojej implementacij algorymtu spektralnego ( z parametrem M = k,k+2,k+6 gdzie k = liczba skupień) z nastepujacymi algorytmami : 
+\begin{itemize}
+\item Wszystkimi algorytmami hierarchicznymi z funkcji \texttt{hclust()}.
+\item Algorytmem \textit{Genie} z pakietu \texttt{genie}.
+\item Algorytmem \textit{hdbscan} (z parametrem minPts=5,10,20,50,100) z pakietu \texttt{dbscan}.
+\end{itemize}
+Porównania będą dotyczyły różnych aspektów działania algorytmów takich jak dokładność i czas. Dane będą przedstawaine w postaci różnego rodzaju wykresów. Surowe informacje znajdują się
+w przesłanych plikach .csv. Do zbierania danych używałem zbiorów benchmarkowych oraz dołączonego do nich zestawu moich zbiorów przedstawionych w pliku Testy.pdf. 
+\newpage
+\section{Analiza hclust}
+
+Zacznę od analizy poszczególnych metod funkcij **hclust** aby wyznaczyć najlepsze metody do dalszych testów. Testy wykonywałem na 13 losowo wybranych zbiorach. 
+\newline 
+Najpierw przeprowadzę analizę średniego  czasu działania poszczególnych metod :
+
+
+```{r echo=FALSE,cache=TRUE ,fig.align='center', fig.cap="Zależność czasu od metody", fig.height=3, fig.pos='h', fig.width=6, message=FALSE, warning=FALSE, paged.print=TRUE}
+hclust_test.table <- as.data.frame(hclust_test.table)
+w <- as.double(as.matrix(hclust_test.table)[,5]) 
+
+wynik <- aggregate(w,by=list(hclust_test.table$Metoda),FUN=function(x){mean(as.double(x))})
+barplot(wynik[,2]/1000,xlab = "Metoda",ylab = "Czas w sekundach",main = "Czas/Metoda")
+text(seq(1,9.3,length.out = 8), par("usr")[3], 
+     srt = 40, adj= 1.2, xpd = TRUE,
+     labels = wynik[,1], cex=0.9)
+```
+
+Teraz dokonam analizy działania algorytmów porównując indeks Randa i Fowlkesa–Mallowsa :
+
+```{r echo=FALSE, cache=TRUE,fig.align='center', fig.cap="Zależność parametrów jakościowych od metody", fig.height=3, fig.pos='h', fig.width=6, message=FALSE, warning=FALSE, paged.print=TRUE}
+hclust_test.table <- as.data.frame(hclust_test.table)
+rn <- as.double(as.matrix(hclust_test.table)[,3])
+fm <- as.double(as.matrix(hclust_test.table)[,4])
+rn <- aggregate(rn,by=list(hclust_test.table$Metoda),FUN=function(x){mean(as.double(x))})
+fm <-  aggregate(fm,by=list(hclust_test.table$Metoda),FUN=function(x){mean(as.double(x))})
+
+indeksy <- matrix(c(rn[,2],fm[,2]),byrow=TRUE,ncol =8,nrow=2)
+row.names(indeksy) <- c("RN","FM") 
+barplot(indeksy,beside = TRUE,main ="Indeksy",ylab="Indeks",xlab="Metoda" ,legend.text = TRUE, args.legend = list(x= "topright",bty="n",inset=c(-0.1,0)))
+text(seq(2.5,23.5,length.out = 8), par("usr")[3], 
+     srt = 40, adj= 1.2, xpd = TRUE,
+     labels = wynik[,1], cex=0.9)
+```
+
+Jak widać najszybsza metdoa to **median** a najwolniesza **ward.D2**. Te dwie metody wybrałem do dalszych testów wydajnościowych i porówania z innymi algorytamai . Należy jednak zauważyć , że choć w przypadku indeksu Fowlkesa–Mallowsa nie widać znaczących róznic. Metoda **ward.D** uzuskała najwyższy indeks Randa.  
+\newpage
+\section{Analiza parametrów dodatkowych}
+Najpierw sprawdzę dla jakiego M moja implementacja dziłała najkuteczniej (Testy przeprowadzanę na 46 zbiorach):
+```{r echo=FALSE, cache=TRUE,fig.align='center', fig.cap="Zależność dokładności od parametru M", fig.height=3, fig.pos='h', fig.width=6, message=FALSE, warning=FALSE, paged.print=TRUE}
+k<- as.vector(moj.table[seq(1,138,by=3),2])%>% as.double()%>% mean()%>%signif(digits = 3)
+k_6 <- as.vector(moj.table[seq(3,138,by=3),2])%>%as.double()%>%mean()%>%signif(digits = 3)
+k_2 <- as.vector(moj.table[seq(2,138,by=3),2])%>%as.double()%>%mean()%>%signif(digits = 3)
+
+
+#barplot(c(k,k_2,k_6),main="Indeks Randa/Parametr M",xlab= "Parametr M",ylab="Indeks Randa")
+do_ggplot <- cbind(c(k,k_2,k_6),c("k","k+2","k+6"))
+do_ggplot <- as.data.frame(do_ggplot)
+colnames(do_ggplot) <- c("x","y")
+p  <- ggplot(do_ggplot,aes(x=y,y=x,fill="red"))+ geom_bar(stat = "identity",position=position_dodge())+ labs( y="Indeks Randa",x="Parametr M")+theme(legend.position = "none")
+p
+
+```
+Jak widać moja implementacja uzyskała najlepszą średnią skuteczność przy M=k+6.\newline
+Sprawdzę teraz funkciję **hdbscan**:
+```{r echo=FALSE, cache=TRUE,fig.align='center', fig.cap="Zależność dokładności od parametru minPts", fig.height=3, fig.pos='h', fig.width=6, message=FALSE, warning=FALSE, paged.print=TRUE}
+m_10<- as.vector(hdbscan.table[seq(1,230,by=5),2])%>% as.double()%>% mean()%>%signif(digits = 3)
+m_20 <- as.vector(hdbscan.table[seq(2,230,by=5),2])%>%as.double()%>%mean()%>%signif(digits = 3)
+m_100<- as.vector(hdbscan.table[seq(3,230,by=5),2])%>%as.double()%>%mean()%>%signif(digits = 3)
+m_50 <- as.vector(hdbscan.table[seq(4,230,by=5),2])%>%as.double()%>%mean()%>%signif(digits = 3)
+m_5 <- as.vector(hdbscan.table[seq(5,230,by=5),2])%>%as.double()%>%mean()%>%signif(digits = 3)
+#barplot(c(k,k_2,k_6),main="Indeks Randa/Parametr M",xlab= "Parametr M",ylab="Indeks Randa")
+do_ggplot <- cbind(c(m_5,m_10,m_20,m_50,m_100),c("5","10","20","50","100"))
+do_ggplot <- as.data.frame(do_ggplot)
+colnames(do_ggplot) <- c("x","y")
+p  <- ggplot(do_ggplot,aes(x=y,y=x,fill="red"))+ geom_bar(stat = "identity",position=position_dodge())+ labs( y="Indeks Randa",x="Argument minPts")+theme(legend.position = "none")
+p
+
+```
+Jak widać funkcja **hdbscan** działa średnio najdokładniej przy parametrze minPts = 10. 
+\newpage
+
+\section{Porównanie wydajności}
+Przetstawię średnie czasy wykonania algorytmów dla **Genie** z parametrem **thresholdGini** = 0.3 oraz **Genie**  z **thresholdGini** = 1 , wybranych metod funkcij 
+**hclust** ,funkcij **hdbscan** oraz mojej implementacij algorytmu spektralnego. W przypadku funkcij **hdbscan** oraz mojej implementacij gdzie występuję dodatkowy parametry wybierany jest ten dla którego czas wykonania był najmniejszy(Testy wykonywane na 46 zbiorach testowych):
+```{r echo=FALSE, cache=TRUE,fig.align='center', fig.cap="Zależność czasu od algorytmu/implementacij", fig.height=3, fig.pos='h', fig.width=6, message=FALSE, warning=FALSE, paged.print=TRUE}
+slow <- as.double(as.matrix(hclust_slow.table)[,4]) 
+fast <- as.double(as.matrix(hclust_fast.table)[,4]) 
+genie <- as.double(as.matrix(genie.table)[,4])
+genie_t <- as.double(as.matrix(genie_turbo.table)[,4])
+w <- as.data.frame(hdbscan.table)
+resoult <-  aggregate(w$Czas,by=list(w$`Nazwa Zbioru`),FUN=function(x){min(x)})
+hdbscan <-  as.double(resoult$x)
+d <-  as.data.frame(moj.table)
+resoult2 <-  aggregate(as.double(as.matrix(d)[,5]) ,by=list(d$`Nazwa Zbioru`),FUN=function(x){min(x)})
+moj <-  as.double(resoult2$x)
+do_boxplota <- cbind(slow,fast,genie,genie_t,hdbscan)
+do_polta <- c(mean(slow),mean(fast),mean(genie),mean(genie_t),mean(hdbscan),mean(moj))
+etykiety <- c("hclust_ward.D2","hclust_median","genie_0.3","genie_1","hdbscan","mój  ")
+barplot(do_polta,xlab = "Algorytm/Implementacja",ylab = "Czas w ms")
+text(seq(1,7,length.out = 6), par("usr")[3], 
+     srt = 40, adj= 1.2, xpd = TRUE,
+     labels = etykiety, cex=0.9)
+```
+Jak widać zdecydowanie najwolniejsza jest moja implementacja więc narazie odrzucę ją z dalszej analizy wydajności. \newline
+Przedstawię teraz analizę czasów działania pozostalych algorytmów: 
+```{r echo=FALSE, cache=TRUE,fig.align='center', fig.cap="Zależność czasu od algorytmu", fig.height=3, fig.pos='h', fig.width=6, message=FALSE, warning=FALSE, paged.print=TRUE}
+
+colnames(do_boxplota) <-  c(" "," "," "," "," ")
+
+boxplot(do_boxplota,ylab="Czas w ms",main="Boxploty czasu od algorytmu",outline=FALSE)
+text(seq(1.5,5.5,length.out = 5), par("usr")[3], 
+     srt = 40, adj= 1.5, xpd = TRUE,
+     labels = etykiety[1:5], cex=0.9)
+
+
+```
+Jak widać po rozpatrzeniu danych można po piersze zauważyć ,że najwolniejsza  metoda **hclust** okazała się najszybsza na większej próbce ( benchmarki wykonywane z argumentem times = 10) . Potem mniej wiecej równo jeśli chodzi o medianę **genie** i metodę **median** z funckij **hclust** najwolniejszy okazał się algorytm **hbdscan** ale w jego wypatku mamy doczynienia z bardzo małym rozrzutem. Tym niemniej można ułożyć algorytmy w kolejności od najszybszego do najwolniejszego  : \newline
+moja implementacja >hdbscan >hclust_median>genie>hclust_ward.D2
+\newpage
+\section{Analiza dokładności}
+W tej sekcij pod uwagę będzie brana metoda 
+**ward_D** 
+z  fuknkcij 
+**hclust**
+.Najpierw sprawdzę średni indeks Randa  w zależności od algorytmu. Jak poprzednio w przypadku metod z dodatkowymi parametrami wybiorę ten o najwyższym indeksie (Testy wykonywane na 46 zbiorach testowych)  :
+```{r echo=FALSE,fig.align='center',cache=TRUE,dependson=c(-1,1,2,3), fig.cap="Zależność indeksów od metody", fig.height=3 ,fig.pos='h', fig.width=6, message=FALSE, warning=FALSE, paged.print=TRUE}
+hclust_wardD.table <- read.table("TESTY/hclust_ward_d.csv",sep=",")
+colnames(hclust_wardD.table) <- c("Nazwa Zbioru","Indeks Randa","FM","Czas")
+
+# RN/FM
+
+hclust_wardD <- (as.matrix(hclust_wardD.table)[,c(2,3)]) 
+genie <- (as.matrix(genie.table)[,c(2,3)])
+genie_t <- (as.matrix(genie_turbo.table)[,c(2,3)])
+w <- as.data.frame(hdbscan.table)
+resoult <-  aggregate(w$`Indeks Randa`,by=list(w$`Nazwa Zbioru`),FUN=function(x){max(as.double(x))})
+resoult <- merge(resoult,w,by.x=c("Group.1","x"),by.y=c("Nazwa Zbioru","Indeks Randa"))
+resoult <- resoult[!duplicated(resoult$Group.1),]
+hdbscan <- as.matrix(resoult[,c(2,3)])
+
+
+w <- as.data.frame(moj.table)
+resoult <-  aggregate(w$`Indeks Randa`,by=list(w$`Nazwa Zbioru`),FUN=function(x){max(as.double(x))})
+resoult <- merge(resoult,w,by.x=c("Group.1","x"),by.y=c("Nazwa Zbioru","Indeks Randa"))
+resoult <- resoult[!duplicated(resoult$Group.1),]
+moj <- as.matrix(resoult[,c(2,3)])
+
+do_barplotaRN <- c(mean(as.double(hclust_wardD[,1])),mean(as.double(genie[,1])),mean(as.double(genie_t[,1])),mean(as.double(hdbscan[,1])),mean(as.double(moj[,1])))
+do_barplotaFM <- c(mean(as.double(hclust_wardD[,2])),mean(as.double(genie[,2])),mean(as.double(genie_t[,2])),mean(as.double(hdbscan[,2])),mean(as.double(moj[,2])))
+indeksy <- matrix(c(do_barplotaRN,do_barplotaFM),byrow=TRUE,ncol =5,nrow=2)
+row.names(indeksy) <- c("RN","FM") 
+etykieta <- c("hclust_ward.D","genie_0.3","genie_1","hdbscan","mój   ")
+
+
+
+# barplot(indeksy,beside = TRUE,main ="Indeksy",ylab="Indeks",xlab="Metoda" ,legend.text = TRUE, args.legend = list(x= "topright",bty="n",inset=c(-0.1,0)))
+# text(seq(2.5,14.5,length.out = 5), par("usr")[3], 
+#      srt = 40, adj= 1.2, xpd = TRUE,
+#      labels = etykieta, cex=1)
+w <- as.data.frame(t(indeksy))
+colnames(w) <- c("Indeks","Indeks2")
+do_ggplot <- as.data.frame(c(w$Indeks,w$Indeks2))
+do_ggplot <- cbind(do_ggplot,rep(c("RN","FM"),each=5),rep(etykieta,2))
+colnames(do_ggplot) <- c("kot","Indeks","Metoda")
+p  <- ggplot(as.data.frame(do_ggplot),aes(y=kot,x=Metoda,fill=Indeks))+ geom_bar(stat = "identity",position=position_dodge())+ labs( y="Indeks")
+p
+
+
+```
+W tym wypadku wyrażnie widać że najlepiej działajacy algorytm to **genie**. Co oznacza ,że dokonuje on najlepszych podziałów.\newline
+\newpage
+Przedstawię teraz zależność średniego indeksu Randa od średniego czasu wykonania algorytmu (czas w ms) : 
+
+
+```{r echo=FALSE, cache=TRUE,fig.align='center', fig.cap="Zależność jakości od czasu 1 ", fig.height=3, fig.pos='h', fig.width=6, message=FALSE, warning=FALSE, paged.print=TRUE}
+slow <- as.double(as.matrix(hclust_slow.table)[,2]) 
+fast <- as.double(as.matrix(hclust_fast.table)[,2]) 
+genie <- as.double(as.matrix(genie.table)[,2])
+genie_t <- as.double(as.matrix(genie_turbo.table)[,2])
+w <- as.data.frame(hdbscan.table)
+resoult2 <-  aggregate(w$`Indeks Randa`,by=list(w$`Nazwa Zbioru`),FUN=function(x){max(as.double(x))})
+hdbscan <- resoult2[,2]
+
+w <- as.data.frame(moj.table)
+resoult2 <-  aggregate(w$`Indeks Randa`,by=list(w$`Nazwa Zbioru`),FUN=function(x){max(as.double(x))})
+moj <- resoult2[,2]
+
+slow_t <- as.double(as.matrix(hclust_slow.table)[,4]) 
+fast_t <- as.double(as.matrix(hclust_fast.table)[,4]) 
+genie_time <- as.double(as.matrix(genie.table)[,4])
+genie_t_t <- as.double(as.matrix(genie_turbo.table)[,4])
+w <- as.data.frame(hdbscan.table)
+resoult <-  aggregate(w$Czas,by=list(w$`Nazwa Zbioru`),FUN=function(x){min(x)})
+hdbscan_t <-  as.double(resoult$x)
+d <-  as.data.frame(moj.table)
+resoult2 <-  aggregate(as.double(as.matrix(d)[,5]) ,by=list(d$`Nazwa Zbioru`),FUN=function(x){min(x)})
+moj_t <-  as.double(resoult2$x)
+
+indeks <- c(mean(slow),mean(fast),mean(genie),mean(genie_t),mean(hdbscan),mean(moj))
+czas <-  c(mean(slow_t),mean(fast_t),mean(genie_time),mean(genie_t_t),mean(hdbscan_t),mean(moj_t))
+do_wykresu <- as.data.frame(cbind(indeks,czas))
+
+p <- ggplot(do_wykresu,aes(x=czas,y=indeks,color=c("hclust_ward.D","hclust_median","genie_0.3","genie_1","hdbscan","mój")))+geom_point(size =2 )+scale_color_manual(breaks =c("hclust_ward.D","hclust_median","genie_0.3","genie_1","hdbscan","mój"),values=c("blue","yellow","black","green","red","pink"))
+p +  guides(color=guide_legend(title="Algorytm"))  
+```
+
+```{r echo=FALSE, cache=TRUE,fig.align='center', fig.cap="Zależność jakości od czasu 2", fig.height=3, fig.pos='h', fig.width=6, message=FALSE, warning=FALSE, paged.print=TRUE}
+p <- ggplot(do_wykresu[-6,],aes(x=czas,y=indeks,color=c("hclust_ward.D","hclust_median","genie_0.3","genie_1","hdbscan")))+geom_point(size =2 )+scale_color_manual(breaks =c("hclust_ward.D","hclust_median","genie_0.3","genie_1","hdbscan"),values=c("blue","yellow","black","green","red"))
+p +  guides(color=guide_legend(title="Algorytm")) + ggtitle("Bez mojej implementacij")  
+
+```
+
+
+Dopiero ten wykres pokazuje skuteczność **genie** które uzyskuję bardzo wysoką jakość w krótkim czasie . 
+
+
+\newpage 
+\section{Wpływ standaryzacij}
+W tej części sprawdzę wpływ standaryzacij na dokładność działania algorytmów (testy przeprowadanę na 14 losowo wybranych zbiorach). \newline
+```{r cache=TRUE, include=FALSE}
+
+genie <-  merge(genie.table,genie_s.table,by="Nazwa Zbioru")
+slow <-  merge(hclust_slow.table,hclust_slow_s.table,by="Nazwa Zbioru")
+fast <-  merge(hclust_fast.table,hclust_fast_s.table,by="Nazwa Zbioru")
+genie_t <-  merge(genie_turbo.table,genie_turbo_s.table,by="Nazwa Zbioru")
+hdbscan <-  merge(hdbscan.table,hdbscan_s.table,by=c("Nazwa Zbioru","parametr minPoint"))
+moj  <-  merge(moj.table,moj_s.table,by=c("Nazwa Zbioru","Parametr M"))
+```
+
+
+Najpierw sprawdzę wpływ standaryzacji na Indeks Randa:
+
+```{r echo=FALSE, cache=TRUE,dependson=-1,fig.align='center', fig.cap="Zależność Indeksu Randa od Standaryzacji", fig.height=3, fig.pos='h', fig.width=7, message=FALSE, warning=FALSE, paged.print=TRUE}
+h <- aggregate(hdbscan$`Indeks Randa.x`,by=list(hdbscan$`Nazwa Zbioru`),FUN=function(x){max(as.double(x))})
+m <- aggregate(moj$`Indeks Randa.x`,by=list(moj$`Nazwa Zbioru`),FUN=function(x){max(as.double(x))})
+
+rn <- c(mean(as.double(genie[,2])),mean(as.double(slow[,2])),mean(as.double(fast[,2])),mean(as.double(genie_t[,2])),mean(h[,2]),mean(m[,2]))
+
+h_s <- aggregate(hdbscan$`Indeks Randa.y`,by=list(hdbscan$`Nazwa Zbioru`),FUN=function(x){max(as.double(x))})
+m_s <- aggregate(moj$`Indeks Randa.y`,by=list(moj$`Nazwa Zbioru`),FUN=function(x){max(as.double(x))})
+
+
+
+rn_s <- c(mean(as.double(genie[,5])),mean(as.double(slow[,5])),mean(as.double(fast[,5])),mean(as.double(genie_t[,5])),mean(h_s[,2]),mean(m_s[,2]))
+etykieta <- c("genie_0.3","hclust_ward.D2","hclust_median","genie_1","hdbscan","mój")
+indeksy <- matrix(c(rn,rn_s),byrow=TRUE,ncol=6,nrow=2)
+row.names(indeksy) <- c("Bez standaryzacij","Standaryzowane") 
+barplot(indeksy,beside = TRUE,main ="Indeks Randa",ylab="Indeks",xlab="Metoda" ,legend.text = TRUE, args.legend = list(x= "topright",bty="n",inset=c(-0.1,-0.32)))
+text(seq(2.5,17.5,length.out = 6), par("usr")[3], 
+     srt = 40, adj= 1.2, xpd = TRUE,
+     labels = etykieta, cex=0.9)
+
+```
+
+Jak widać w przypadku niektórych algorytmów wpływ jest niezauważalny a w innych wypadkach negatywny.\newline
+Teraz indeks Fowlkesa–Mallowsa:
+
+```{r echo=FALSE, cache=TRUE,dependson=-2,fig.align='center', fig.cap="Zależność Indeksu Fowlkesa–Mallowsa od Standaryzacji", fig.height=3, fig.pos='h', fig.width=7, message=FALSE, warning=FALSE, paged.print=TRUE}
+
+h <- aggregate(hdbscan$`FM.x`,by=list(hdbscan$`Nazwa Zbioru`),FUN=function(x){max(as.double(x))})
+m <- aggregate(moj$`FM`,by=list(moj$`Nazwa Zbioru`),FUN=function(x){max(as.double(x))})
+
+fm<- c(mean(as.double(genie[,3])),mean(as.double(slow[,3])),mean(as.double(fast[,3])),mean(as.double(genie_t[,3])),mean(h[,2]),mean(m[,2]))
+
+h_s <- aggregate(hdbscan$`FM.y`,by=list(hdbscan$`Nazwa Zbioru`),FUN=function(x){max(as.double(x))})
+m_s <- aggregate(moj$`Fm`,by=list(moj$`Nazwa Zbioru`),FUN=function(x){max(as.double(x))})
+
+
+fm_s <- c(mean(as.double(genie[,6])),mean(as.double(slow[,6])),mean(as.double(fast[,6])),mean(as.double(genie_t[,6])),mean(h_s[,2]),mean(m_s[,2]))
+etykieta <- c("genie_0.3","hclust_ward.D2","hclust_median","genie_1","hdbscan","mój  ")
+indeksy <- matrix(c(fm,fm_s),byrow=TRUE,ncol=6,nrow=2)
+row.names(indeksy) <- c("Bez standaryzacij","Standaryzowane") 
+barplot(indeksy,beside = TRUE,main ="Indeks Fowlkesa Mallowsa",ylab="Indeks",xlab="Metoda" ,legend.text = TRUE, args.legend = list(x= "topright",bty="n",inset=c(-0.1,-0.32)))
+text(seq(2.5,17.5,length.out = 6), par("usr")[3], 
+     srt = 40, adj= 1.2, xpd = TRUE,
+     labels = etykieta, cex=0.9)
+```
+
+Jak widać drugi parametr jakościwy również wskazuje na to samo chociaż w mniejszym stopniu . Mimo to myślę ,że można wyciągnąć wniosek o negatywnym wpływię standaryzac przy analizie skupień. 
+
+\newpage
+\section{Zbiory}
+Teraz zaprezentuję z którym zbiorem najgorzej poradził sobie dany algorytm:
+```{r echo=FALSE, cache=TRUE,fig.align='center', fig.cap="Najgorzej podzielone zbiory", fig.height=7, fig.pos='h', fig.width=6, message=FALSE, warning=FALSE, paged.print=TRUE}
+working_directory <- getwd()
+files_directory <- file.path(working_directory, "Zbiory_benchmarkowe")
+zbiory <- list.files(files_directory, "data\\.gz$", recursive=TRUE)
+etykiety <- list.files(files_directory, "labels0\\.gz$", recursive=TRUE)
+pliki <- cbind(zbiory, etykiety)
+
+
+par(mfrow=c(3,2),mar=c(2,2,2,2),oma=c(1,1,1,1))
+
+a <- which.min(genie.table$`Indeks Randa`)
+set <- paste(files_directory, pliki[a, 1], sep = "/")
+label <- paste(files_directory, pliki[a, 2], sep = "/")
+plot(read.table(set),col=as.vector(read.table(label)[,1]),yaxt='n',xaxt='n',main="genie_0.3")
+
+
+a <- which.min(hclust_slow.table$`Indeks Randa`)
+set <- paste(files_directory, pliki[a, 1], sep = "/")
+label <- paste(files_directory, pliki[a, 2], sep = "/")
+plot(read.table(set),col=as.vector(read.table(label)[,1]),yaxt='n',xaxt='n',main="hclust_ward.D2")
+
+a <- which.min(hclust_fast.table$`Indeks Randa`)
+set <- paste(files_directory, pliki[a, 1], sep = "/")
+label <- paste(files_directory, pliki[a, 2], sep = "/")
+plot(read.table(set),col=as.vector(read.table(label)[,1]),yaxt='n',xaxt='n',main="hclust_median")
+
+a <- which.min(genie_turbo.table$`Indeks Randa`)
+set <- paste(files_directory, pliki[a, 1], sep = "/")
+label <- paste(files_directory, pliki[a, 2], sep = "/")
+plot(read.table(set),col=as.vector(read.table(label)[,1]),yaxt='n',xaxt='n',main="genie_1")
+
+moj_polt <- aggregate(moj.table$`Indeks Randa`,by=list(moj.table$`Nazwa Zbioru`),FUN=function(x){min(as.double(x))})
+
+a <- which.min(moj_polt$x)
+set <- paste(files_directory, pliki[a, 1], sep = "/")
+label <- paste(files_directory, pliki[a, 2], sep = "/")
+plot(read.table(set),col=as.vector(read.table(label)[,1]),yaxt='n',xaxt='n',main="mój")
+
+hdbclust_polt <- aggregate(hdbscan.table$`Indeks Randa`,by=list(hdbscan.table$`Nazwa Zbioru`),FUN=function(x){min(as.double(x))})
+
+a <- which.min(hdbclust_polt$x)
+set <- paste(files_directory, pliki[a, 1], sep = "/")
+label <- paste(files_directory, pliki[a, 2], sep = "/")
+plot(read.table(set),col=as.vector(read.table(label)[,1]),yaxt='n',xaxt='n',main="hdbscan")
+
+
+
+
+```
+
+\newpage
+\section{Podsumowanie}
+Wszystkie przytoczone przeze mnie wykesy wskazują na wyraźną dominację algorytmu **genie** który nie okazał się najszybszy . Pomimo tege przy bardzo wyskojej prędkości działania zapenia najlepszą skuteczność z badanych algorytmów/implementacij . Moja własna implementacja okazała się około 100 razy wolniejsza od **genie** ale nie wiele od niej mniej dokładna. Algorytm **hdbscan** pomimo działania bez podanej odgórnie liczby skupień okazał sie dokładniejszy niż metody funkcij **hclust**. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
