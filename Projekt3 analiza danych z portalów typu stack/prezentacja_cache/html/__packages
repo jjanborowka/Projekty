@@ -1,0 +1,11 @@
+base
+shiny
+maps
+sp
+dplyr
+data.table
+stringi
+XML
+ggplot2
+RColorBrewer
+wordcloud

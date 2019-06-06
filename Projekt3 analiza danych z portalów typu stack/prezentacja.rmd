@@ -1,0 +1,374 @@
+---
+title: "Analiza forum stack"
+author: "Jan Borowski, Piotr Fic"
+date: "31 maja 2019"
+output: 
+  ioslides_presentation:
+    css: styles.css
+runtime: shiny
+widescreen: true
+---
+
+```{r setup, include=FALSE, cache=TRUE}
+#Potrzebne pakiety !!!
+knitr::opts_chunk$set(echo = FALSE)
+library(maps)
+library(sp)
+library(dplyr)
+library(data.table)
+library(stringi)
+library(XML)
+library(ggplot2)
+library(wordcloud)
+
+
+#Wczytanie potrzebnych danych
+
+bank_krajow <- unique(world.cities$country.etc)
+
+result <- read.csv("./wyniki/wyniki_po_kwartale.csv")
+colnames(result)[2:33] <- substring(colnames(result)[2:33], 2)
+
+travel_posts <- xmlToList("./travel/Posts.xml")
+travel_posts <- lapply(travel_posts, as.list)
+travel_posts <- rbindlist(travel_posts, fill = TRUE)
+
+travel_users <- xmlToList("./travel/Users.xml")
+travel_users <- lapply(travel_users, as.list)
+travel_users <- rbindlist(travel_users, fill = TRUE)
+
+standaryzacja <- function(x){if(sum(as.numeric(x))==0){return(0)}
+  ((x-min(x))/(max(x)-min(x)))}
+
+dane <-  read.csv("./wyniki/wynik_po_kwartale_politic.csv")
+row.names(dane) <- dane$X
+dane <- dane[,-1]
+standaryzowane_politic <- as.data.frame(apply(dane,MARGIN = 2, FUN = standaryzacja))
+
+dane2 <-  read.csv("./wyniki/wyniki_po_kwartale.csv")
+row.names(dane2) <- dane2$X
+dane2 <- dane2[,-1]
+standaryzowane_travel <- as.data.frame(apply(dane2, MARGIN = 2, FUN = standaryzacja))
+
+
+obama_trump <- read.csv("./wyniki/obama_trump.csv")
+obama_trump <- obama_trump[,2:25]
+
+#Wyniki popularnosci krajow jako procentowy udzial w pytaniach
+
+tmp <- as.data.frame(apply(result[,-1], MARGIN = 2, FUN = function(x){as.numeric(x)/sum(as.numeric(x))*100}))
+kraje_proc <- as.data.frame(cbind(result[,1], tmp))
+
+Daty <- data.frame(t(1:31))
+Daty <- rbind(Daty,1:31)
+colnames(Daty) <- 1:31
+licznki <- 1
+daty <- c("2011-01-01", "2011-04-01", "2011-07-01", "2011-10-01", "2011-12-31")
+rok_iteracji <- 2011
+daty <- as.Date(daty)
+while(rok_iteracji<2019){
+  for (j in 1:4){
+    Daty[1,licznki] <- as.character(daty[j])
+    Daty[2,licznki] <- as.character(daty[j+1])
+    licznki <- licznki+1
+  }
+  rok_iteracji <- rok_iteracji+1
+  daty <- as.Date(stri_datetime_add(daty, value = 1, units = "year"))
+}
+colnames(Daty) <- 1:32
+
+```
+
+#Kto według stacka jest prezydentem U.S.A?
+
+##Najpopularniejsze słowa stack politics
+```{r message=FALSE, warning=FALSE}
+inputPanel(
+ sliderInput("number4", label = "Wybór kwartału", min = 9, max = 31, value = 1) 
+)
+
+renderPlot({
+w <- read.csv(paste("./mapy_politic/wordmap_", input$number4,sep=""))
+row.names(w) <- w$X
+w <- w[,-1]
+layout(matrix(c(1, 2), nrow=2), heights=c(1, 4))
+par(mar=rep(0, 4))
+plot.new()
+text(x=0.5, y=0.1, paste(Daty[1,input$number4],Daty[2,input$number4],sep = "---"))
+wordcloud(words = w$word, freq = w$freq, min.freq = 1,
+            max.words=100, random.order=FALSE, rot.per=0.45, 
+            colors=brewer.pal(4, "Dark2"),shape = "circle")
+})
+
+```
+
+##Wystąpienia nazwisk Obama oraz Trump
+```{r message=FALSE, warning=FALSE}
+renderPlot({
+do_ggplota <- as.data.frame(cbind(t(obama_trump), 1:24))
+colnames(do_ggplota) <- c("Obama","Trump","Rok_kwartał")
+automatyzacja <- substring(colnames(obama_trump),first = 2)
+
+  ggplot(do_ggplota, aes(x=Rok_kwartał)) + 
+  geom_line(aes(y=Obama,color="Obama")) + 
+  geom_line(aes(y=Trump,color="Trump"))+scale_x_continuous(breaks=seq(1,24,2),labels=automatyzacja[seq(1,24,2)],name="Rok_kwartał")+
+  theme(axis.text.x = element_text(face="bold", color="#993333",size=14, angle=45),axis.text.y = element_blank())+
+  scale_y_continuous(name="Częstość występowania")+scale_color_manual(name="", values = c("Obama"="blue", "Trump"="red"))
+})
+```
+
+##Co wydarzyło się w Wielkiej Brytanii?
+```{r message=FALSE, warning=FALSE}
+automatyzacja <- substring(colnames(standaryzowane_politic),first = 2)
+do_ggplota1 <- as.data.frame(cbind(as.numeric(t(standaryzowane_politic["united-kingdom",])),1:32))
+
+renderPlot({
+ggplot(do_ggplota1[c(-1,-2,-3),],aes(y=V1, x=V2,color="red")) + geom_line(size=1.2)+geom_point(size=5)+theme(legend.position = "none")+
+  scale_x_continuous(breaks=seq(4,31,2),labels=automatyzacja[seq(4,31,2)],name="Rok_kwartał")+scale_y_continuous(name = "Cześtość występowannia w tagach")+
+  theme(axis.text.x = element_text(face="bold", color="#993333",size=14, angle=45),axis.text.y = element_blank())
+})
+```
+
+##Najczęstsze wyrażenia
+```{r message=FALSE, warning=FALSE}
+renderPlot({
+w <- read.csv("./mapy_tytuły/wordmap_22")
+row.names(w) <- w$X
+w <- w[-1,-1]
+
+layout(matrix(c(1, 2), nrow=2), heights=c(1, 4))
+par(mar=rep(0, 4))
+plot.new()
+text(x=0.5, y=0.1, c("Rok 2016"))
+wordcloud(words = w$word, freq = w$freq, min.freq = 1,
+            max.words=100, random.order=FALSE, rot.per=0.45, 
+            colors=brewer.pal(4, "Dark2"),shape = "circle")
+})
+```
+
+##Co łączy Rosję i Ukrainę?
+```{r message=FALSE, warning=FALSE}
+renderPlot({
+a<- as.data.frame(cbind(as.numeric(t(standaryzowane_politic["russian-federation",])),1:32))
+b <- as.data.frame(cbind(as.numeric(t(standaryzowane_politic["ukraine",])),1:32))
+do_ggplota2<- as.data.frame(cbind(a[,2],a[,1],b[,1]))
+colnames(do_ggplota2) <- c("Rok_kwartał","Russian_Federation","Ukraine")
+
+ggplot(do_ggplota2[-c(1:6,32),], aes(x=Rok_kwartał)) + 
+  geom_line(aes(y=Russian_Federation,color="Russian Federation")) + 
+  geom_line(aes(y=Ukraine,color="Ukraine"))+scale_x_continuous(breaks=seq(7,31,2),labels=automatyzacja[seq(7,31,2)],name="Rok_kwartał")+
+  theme(axis.text.x = element_text(face="bold", color="#993333",size=14, angle=45),axis.text.y = element_blank())+
+  scale_y_continuous(name="Częstość występowania")+scale_color_manual(name="", values = c("Ukraine"="blue", "Russian Federation"="red"))
+})
+```
+
+##Tymczasem w Polsce
+```{r message=FALSE, warning=FALSE}
+automatyzacja <- substring(colnames(standaryzowane_politic),first = 2)
+do_ggplota3 <- as.data.frame(cbind(as.numeric(t(standaryzowane_politic["poland",])),1:32))
+
+renderPlot({
+ggplot(do_ggplota3[c(-1,-2,-3),],aes(y=V1, x=V2,color="red")) + geom_line(size=1.2)+geom_point(size=5)+theme(legend.position = "none")+
+  scale_x_continuous(breaks=seq(4,31,2),labels=automatyzacja[seq(4,31,2)],name="Rok_kwartał")+scale_y_continuous(name = "Cześtość występowannia w tagach")+
+  theme(axis.text.x = element_text(face="bold", color="#993333",size=14, angle=45),axis.text.y = element_blank())
+})
+```
+
+#Gdzie podróżują użytkownicy stacka?
+
+##Popularność krajów na stacku travel
+```{r}
+inputPanel(
+  sliderInput("number", label = "Wybór kwartału", min = 1, max = 31, value = 1)
+)
+
+renderPlot({
+
+number <- colnames(result)[input$number+2]
+results_to_map <- cbind(kraje_proc, bank_krajow)
+
+map_data <- rworldmap::joinCountryData2Map(results_to_map, joinCode = "NAME", nameJoinColumn = "bank_krajow")
+par(mar = c(0,0,1,0))
+rworldmap::mapCountryData(map_data, nameColumnToPlot = number, catMethod = "categorical", addLegend = FALSE)
+
+})
+
+```
+
+##Igrzyska oraz mundial w Rosji
+```{r}
+inputPanel(
+  sliderInput("number2", label = "Wybór kwartału", min = 1, max = 31, value = 1)
+)
+
+renderPlot({
+  
+  number2 <- colnames(result)[input$number2+2]
+  results_to_map <- cbind(kraje_proc, bank_krajow)
+  results_to_map[10,2:33] <- rep(10, times = 32)
+
+  
+  map_data2 <- rworldmap::joinCountryData2Map(results_to_map[c(-59, -55, -51),], joinCode = "NAME", nameJoinColumn = "bank_krajow")
+  rworldmap::mapCountryData(map_data2, nameColumnToPlot = number2, addLegend = TRUE, catMethod = "pretty", 
+                            xlim = c(26, 180), ylim = c(40,90), numCats = 10)
+  
+})
+
+```
+
+##Popularność Rosji na stacku sport
+```{r}
+dane  <- as.data.frame(read.csv("./wyniki/rosja.csv"))
+row.names(dane) <- dane$X
+dane <- dane[,-1]
+colnames(dane) <- substring(colnames(dane),first=2)
+
+tutejsza_autoatyzacja<- c("2012_1", "2012_2" ,"2012_3" ,"2012_4" ,"2013_1", "2013_2", "2013_3", "2013_4", "2014_1", "2014_2" ,"2014_3" ,"2014_4", "2015_1" ,"2015_2",
+                          "2015_3", "2015_4", "2016_1" ,"2016_2", "2016_3", "2016_4", "2017_1" ,"2017_2", "2017_3", "2017_4", "2018_1", "2018_2", "2018_3" ,"2018_4")
+
+colnames(dane) <- tutejsza_autoatyzacja
+dane_doggplota <- as.data.frame(cbind(t(dane),1:28))
+dane_doggplota <- dane_doggplota[c(-1,-2),]
+colnames(dane_doggplota) <- c("V1","V2")
+
+renderPlot({
+ggplot(dane_doggplota,aes(y=V1, x=V2,color="red")) + geom_line(size=1.2)+geom_point(size=5)+theme(legend.position = "none")+
+  scale_x_continuous(breaks=seq(1,28,2),labels=tutejsza_autoatyzacja[seq(1,28,2)],name="Rok_kwartał")+scale_y_continuous(name = "Cześtość występowannia w postach")+
+  theme(axis.text.x = element_text(face="bold", color="#993333",size=14, angle=45),axis.text.y = element_blank())
+})
+```
+
+##Najczęstsze słowa stack sport
+```{r echo=FALSE, message=TRUE, warning=TRUE}
+inputPanel(
+ sliderInput("number5", label = "Wybór kwartału", min = 5, max = 31, value = 1) 
+)
+
+renderPlot({
+
+w <- read.csv(paste("mapy_sport/wordmap_",input$number5,sep=""))
+row.names(w) <- w$X
+w <- w[,-1]
+layout(matrix(c(1, 2), nrow=2), heights=c(1, 4))
+par(mar=rep(0, 4))
+plot.new()
+text(x=0.5, y=0.1, paste(Daty[1,input$number5],Daty[2,input$number5],sep = "---"))
+wordcloud(words = w$word, freq = w$freq, min.freq = 1,
+            max.words=100, random.order=FALSE, rot.per=0.45, 
+            colors=brewer.pal(4, "Dark2"),shape = "circle")
+})
+```
+
+##Francja po zamachach terrorystycznych
+```{r}
+inputPanel(
+  sliderInput("number3", label = "Wybór kwartału", min = 1, max = 31, value = 1)
+)
+
+renderPlot({
+
+number3 <- colnames(result)[input$number3+2]
+results_to_map <- cbind(kraje_proc, bank_krajow)
+results_to_map[10,2:33] <- rep(10, times = 32)
+
+
+map_data3 <- rworldmap::joinCountryData2Map(results_to_map[c(-59, -55, -51),], joinCode = "NAME", nameJoinColumn = "bank_krajow")
+rworldmap::mapCountryData(map_data3, nameColumnToPlot = number3, catMethod = "pretty",addLegend = TRUE, 
+                          xlim = c(-5.2, 8.1), ylim = c(42, 51.2), numCats = 10)
+
+})
+
+```
+
+##Spadek popularności Francji
+```{r message=FALSE, warning=FALSE}
+automatyzacja <- substring(colnames(kraje_proc),first = 2)
+do_ggplota4 <- as.data.frame(cbind(as.numeric(t(standaryzowane_travel["france",])), 1:32))
+
+renderPlot({
+ggplot(do_ggplota4[c(-1,-2,-3),],aes(y=V1, x=V2,color="red")) + geom_line(size=1.2)+geom_point(size=5)+theme(legend.position = "none")+
+  scale_x_continuous(breaks=seq(4,31,2),labels=automatyzacja[seq(4,31,2)],name="Rok_kwartał")+scale_y_continuous(name = "Częstość występowannia w tagach")+
+  theme(axis.text.x = element_text(face="bold", color="#993333",size=14, angle=45),axis.text.y = element_blank())
+})
+
+```
+
+#Co stack mówi o Polsce?
+
+##Euro 2012 w Polsce
+```{r}
+inputPanel(
+  sliderInput("number4", label = "Wybór kwartału", min = 1, max = 31, value = 1)
+)
+
+renderPlot({
+
+number4 <- colnames(result)[input$number4+2]
+results_to_map <- cbind(kraje_proc, bank_krajow)
+results_to_map[10,2:33] <- rep(10, times = 32)
+
+map_data4 <- rworldmap::joinCountryData2Map(results_to_map[c(-59, -55, -51),], joinCode = "NAME", nameJoinColumn = "bank_krajow")
+rworldmap::mapCountryData(map_data4, nameColumnToPlot = number4, catMethod = "pretty", numCats = 10,
+                          addLegend = TRUE, xlim = c(13.8, 24.5), ylim = c(48.5, 55))
+
+})
+
+```
+
+##Polska na stacku travel
+```{r}
+automatyzacja <- substring(colnames(standaryzowane_travel),first = 2)
+do_ggplota5 <- as.data.frame(cbind(as.numeric(t(standaryzowane_travel["poland",])), 1:32))
+
+renderPlot({
+ggplot(do_ggplota5[c(-1,-2,-3),],aes(y=V1, x=V2,color="red")) + geom_line(size=1.2)+geom_point(size=5)+theme(legend.position = "none")+
+  scale_x_continuous(breaks=seq(4,31,2),labels=automatyzacja[seq(4,31,2)],name="Rok_kwartał")+scale_y_continuous(name = "Częstość występowannia w tagach")+
+  theme(axis.text.x = element_text(face="bold", color="#993333",size=14, angle=45),axis.text.y = element_blank())
+})
+
+```
+
+##Ulubione kierunki Polaków
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+#Wyrzucamy wiersze z NA
+travel_users <- travel_users[!is.na(travel_users$Location)]
+
+#Szukamy Polakow
+travel_users$Location <- tolower(travel_users$Location)
+travel_users <- travel_users[stri_detect(travel_users$Location, regex = "poland|polska"),]
+
+#Merge z ich postami
+posty_polakow <- inner_join(travel_posts, travel_users, by = c("OwnerUserId" = "Id"))
+
+#Szukamy krajow
+#Wyrzucamy wiersze z NA
+posty_polakow_tags <- posty_polakow[!is.na(posty_polakow$Tags),]
+#Przerabiamy tagi na wektory stringow
+posty_polakow_tags$Tags <- lapply(posty_polakow_tags$Tags,
+                                 FUN = function(x){
+                                   stri_extract_all(x, regex = "(?<=<).+?(?=>)")})
+posty_polakow_tags$Tags <- lapply(posty_polakow_tags$Tags, unlist)
+
+kraje <- unique(world.cities$country.etc)
+kraje <- tolower(kraje)
+
+polacy_kraje <- lapply(posty_polakow_tags$Tags, FUN = function(x){
+  unlist(match(unlist(x), kraje, nomatch = NULL))
+})
+
+polacy_kraje <- na.omit(unlist(polacy_kraje))
+
+#Najpopularniejsze wsrod Polakow
+polacy_kraje_licznosc <- as.data.frame(table(polacy_kraje), stringsAsFactors = FALSE)
+wynik <- data.frame(rep(0, times = length(kraje)))
+wynik[as.numeric(polacy_kraje_licznosc$polacy_kraje),1] <- wynik[as.numeric(polacy_kraje_licznosc$polacy_kraje),1] + polacy_kraje_licznosc$Freq
+
+wynik <- cbind(kraje, wynik)
+colnames(wynik) <- c("kraje", "freq")
+renderPlot({
+map_data <- rworldmap::joinCountryData2Map(wynik, joinCode = "NAME", nameJoinColumn = "kraje")
+par(mar = c(0,0,0,0))
+rworldmap::mapCountryData(map_data, nameColumnToPlot = "freq", catMethod = "categorical", mapTitle = "", addLegend = FALSE)
+})
+
+```
