@@ -1,0 +1,7 @@
+Skalowanie zmiennych numerycznych + Wizualizacja - E
+Encodingi - Target, One Hot, Polynomial - E
+Strojenie Random Forest i XGBoost - W
+Recall, Precision, AUC - W
+Inżynieria cech - J
+Feature Importance + porównanie z EDA - J
+Raport - E + W
